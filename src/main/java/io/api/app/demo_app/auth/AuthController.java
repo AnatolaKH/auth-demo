@@ -49,9 +49,34 @@ public class AuthController {
         );
 
         final UserDetails userDetails = userDetailsService.loadUserByUsername(authRequest.getEmail());
-        final String jwt = jwtUtil.generateToken(userDetails);
+        final String accessToken = jwtUtil.generateAccessToken(userDetails);
+        final String refreshToken = jwtUtil.generateRefreshToken(userDetails);
 
-        return ResponseEntity.ok(new AuthResponse(jwt));
+        return ResponseEntity.ok(new AuthResponse(accessToken, refreshToken));
+    }
+
+    @PostMapping("/refresh")
+    public ResponseEntity<?> refresh(@RequestBody RefreshTokenRequest request) {
+        if (request.getRefreshToken() == null || request.getRefreshToken().isBlank()) {
+            return ResponseEntity.badRequest().body(new ErrorResponse("V3AU2", "Refresh token is required"));
+        }
+
+        try {
+            String username = jwtUtil.extractUsername(request.getRefreshToken());
+            UserDetails userDetails = userDetailsService.loadUserByUsername(username);
+
+            if (!jwtUtil.validateRefreshToken(request.getRefreshToken(), userDetails)) {
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                        .body(new ErrorResponse("V3AU3", "Invalid refresh token"));
+            }
+
+            String newAccessToken = jwtUtil.generateAccessToken(userDetails);
+            String newRefreshToken = jwtUtil.generateRefreshToken(userDetails);
+            return ResponseEntity.ok(new AuthResponse(newAccessToken, newRefreshToken));
+        } catch (Exception ignored) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(new ErrorResponse("V3AU3", "Invalid refresh token"));
+        }
     }
 
     @PostMapping("/otp/send")
@@ -70,8 +95,9 @@ public class AuthController {
                 .orElseThrow(otpErrorMapper::userNotFound);
         if (otpService.validateOtp(user, code)) {
             final UserDetails userDetails = userDetailsService.loadUserByUsername(email);
-            final String jwt = jwtUtil.generateToken(userDetails);
-            return ResponseEntity.ok(new AuthResponse(jwt));
+            final String accessToken = jwtUtil.generateAccessToken(userDetails);
+            final String refreshToken = jwtUtil.generateRefreshToken(userDetails);
+            return ResponseEntity.ok(new AuthResponse(accessToken, refreshToken));
         } else {
             return ResponseEntity.badRequest().body("Invalid OTP");
         }

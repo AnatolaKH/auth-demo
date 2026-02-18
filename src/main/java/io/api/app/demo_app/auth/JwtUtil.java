@@ -10,11 +10,16 @@ import org.springframework.stereotype.Component;
 import javax.crypto.SecretKey;
 import java.nio.charset.StandardCharsets;
 import java.util.Date;
+import java.util.UUID;
 import java.util.function.Function;
 
 @Component
 @RequiredArgsConstructor
 public class JwtUtil {
+
+    private static final String TOKEN_TYPE_CLAIM = "type";
+    private static final String ACCESS_TOKEN_TYPE = "access";
+    private static final String REFRESH_TOKEN_TYPE = "refresh";
 
     private final JwtConfig jwtConfig;
 
@@ -29,6 +34,10 @@ public class JwtUtil {
 
     public Date extractExpiration(String token) {
         return extractClaim(token, Claims::getExpiration);
+    }
+
+    public String extractTokenType(String token) {
+        return extractClaim(token, claims -> claims.get(TOKEN_TYPE_CLAIM, String.class));
     }
 
     public <T> T extractClaim(String token, Function<Claims, T> claimsResolver) {
@@ -48,24 +57,41 @@ public class JwtUtil {
         return extractExpiration(token).before(new Date());
     }
 
-    public String generateToken(UserDetails userDetails) {
-        return createToken(userDetails.getUsername());
+    public String generateAccessToken(UserDetails userDetails) {
+        return createToken(userDetails.getUsername(), ACCESS_TOKEN_TYPE, jwtConfig.getAccessToken().getExpiration());
     }
 
-    private String createToken(String subject) {
+    public String generateRefreshToken(UserDetails userDetails) {
+        return createToken(userDetails.getUsername(), REFRESH_TOKEN_TYPE, jwtConfig.getRefreshToken().getExpiration());
+    }
+
+    private String createToken(String subject, String tokenType, long expirationMs) {
         Date now = new Date();
-        Date expiryDate = new Date(now.getTime() + jwtConfig.getAccessToken().getExpiration());
+        Date expiryDate = new Date(now.getTime() + expirationMs);
 
         return Jwts.builder()
                 .subject(subject)
+                .id(UUID.randomUUID().toString())
+                .claim(TOKEN_TYPE_CLAIM, tokenType)
                 .issuedAt(now)
                 .expiration(expiryDate)
                 .signWith(getSigningKey())
                 .compact();
     }
 
-    public Boolean validateToken(String token, UserDetails userDetails) {
+    public Boolean validateAccessToken(String token, UserDetails userDetails) {
+        return validateToken(token, userDetails, ACCESS_TOKEN_TYPE);
+    }
+
+    public Boolean validateRefreshToken(String token, UserDetails userDetails) {
+        return validateToken(token, userDetails, REFRESH_TOKEN_TYPE);
+    }
+
+    private Boolean validateToken(String token, UserDetails userDetails, String expectedType) {
         final String username = extractUsername(token);
-        return (username.equals(userDetails.getUsername()) && !isTokenExpired(token));
+        final String tokenType = extractTokenType(token);
+        return (username.equals(userDetails.getUsername())
+                && expectedType.equals(tokenType)
+                && !isTokenExpired(token));
     }
 }
